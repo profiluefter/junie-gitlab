@@ -88,7 +88,18 @@ export async function createMergeRequest(
 
 export async function deletePipeline(projectId: number, pipelineId: number): Promise<void> {
     logger.debug(`Deleting pipeline ${pipelineId} from project ${projectId}`);
-    return withRetry(() => api.Pipelines.remove(projectId, pipelineId), `delete pipeline ${pipelineId}`);
+    try {
+        await withRetry(() => api.Pipelines.remove(projectId, pipelineId), `delete pipeline ${pipelineId}`);
+    } catch (e) {
+        // If the pipeline is already gone (deleted by a concurrent operation or
+        // never existed), treat it as a successful cleanup instead of failing.
+        const description = (e as any)?.cause?.description ?? (e as any)?.message ?? String(e);
+        if (typeof description === 'string' && description.includes('404')) {
+            logger.warn(`Pipeline ${pipelineId} already deleted (404), treating cleanup as success.`);
+            return;
+        }
+        throw e;
+    }
 }
 
 export async function runPipeline(
